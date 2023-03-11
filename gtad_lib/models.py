@@ -16,8 +16,8 @@ def knn(x, y=None, k=10):
         y = x
     # logging.info('Size in KNN: {} - {}'.format(x.size(), y.size()))
     inner = -2 * torch.matmul(y.transpose(2, 1), x)
-    xx = torch.sum(x ** 2, dim=1, keepdim=True)
-    yy = torch.sum(y ** 2, dim=1, keepdim=True)
+    xx = torch.sum(x**2, dim=1, keepdim=True)
+    yy = torch.sum(y**2, dim=1, keepdim=True)
     pairwise_distance = -xx - inner - yy.transpose(2, 1)
     _, idx = pairwise_distance.topk(k=k, dim=-1)  # (batch_size, num_points, k)
     return idx
@@ -47,7 +47,9 @@ def get_graph_feature(x, prev_x=None, k=20, idx_knn=None, r=-1, style=0):
     idx = idx_knn + idx_base
     idx = idx.view(-1)
     _, num_dims, _ = x.size()
-    x = x.transpose(2, 1).contiguous()  # (batch_size, num_points, num_dims)  -> (batch_size*num_points, num_dims)
+    x = x.transpose(
+        2, 1
+    ).contiguous()  # (batch_size, num_points, num_dims)  -> (batch_size*num_points, num_dims)
     feature = x.view(batch_size * num_points, -1)[idx, :]
     feature = feature.view(batch_size, num_points, k, num_dims)
     x = x.view(batch_size, num_points, 1, num_dims).repeat(1, 1, k, 1)
@@ -55,19 +57,29 @@ def get_graph_feature(x, prev_x=None, k=20, idx_knn=None, r=-1, style=0):
         feature = torch.cat((feature - x, x), dim=3).permute(0, 3, 1, 2)
     elif style == 1:  # use feature as feature
         feature = torch.cat((feature, x), dim=3).permute(0, 3, 1, 2)
-    else: # style == 2:
-        feature = feature.permute(0,3,1,2)
+    else:  # style == 2:
+        feature = feature.permute(0, 3, 1, 2)
     # downsample if needed
     if r != -1:
-        select_idx = torch.from_numpy(np.random.choice(feature.size(2), feature.size(2) // r,
-                                                       replace=False)).to(device=device)
+        select_idx = torch.from_numpy(
+            np.random.choice(feature.size(2), feature.size(2) // r, replace=False)
+        ).to(device=device)
         feature = feature[:, :, select_idx, :]
     return feature, idx_knn
 
 
 # basic block
 class GCNeXt(nn.Module):
-    def __init__(self, channel_in, channel_out, k=3, norm_layer=None, groups=32, width_group=4, idx=None):
+    def __init__(
+        self,
+        channel_in,
+        channel_out,
+        k=3,
+        norm_layer=None,
+        groups=32,
+        width_group=4,
+        idx=None,
+    ):
         super(GCNeXt, self).__init__()
         self.k = k
         self.groups = groups
@@ -76,16 +88,20 @@ class GCNeXt(nn.Module):
             norm_layer = nn.BatchNorm1d
         width = width_group * groups
         self.tconvs = nn.Sequential(
-            nn.Conv1d(channel_in, width, kernel_size=1), nn.ReLU(True),
-            nn.Conv1d(width, width, kernel_size=3, groups=groups, padding=1), nn.ReLU(True),
+            nn.Conv1d(channel_in, width, kernel_size=1),
+            nn.ReLU(True),
+            nn.Conv1d(width, width, kernel_size=3, groups=groups, padding=1),
+            nn.ReLU(True),
             nn.Conv1d(width, channel_out, kernel_size=1),
-        ) # temporal graph
+        )  # temporal graph
 
         self.sconvs = nn.Sequential(
-            nn.Conv2d(channel_in * 2, width, kernel_size=1), nn.ReLU(True),
-            nn.Conv2d(width, width, kernel_size=1, groups=groups), nn.ReLU(True),
+            nn.Conv2d(channel_in * 2, width, kernel_size=1),
+            nn.ReLU(True),
+            nn.Conv2d(width, width, kernel_size=1, groups=groups),
+            nn.ReLU(True),
             nn.Conv2d(width, channel_out, kernel_size=1),
-        ) # semantic graph
+        )  # semantic graph
 
         self.relu = nn.ReLU(True)
         self.idx_list = idx
@@ -94,7 +110,9 @@ class GCNeXt(nn.Module):
         identity = x  # residual
         tout = self.tconvs(x)  # conv on temporal graph
 
-        x_f, idx = get_graph_feature(x, k=self.k, style=1)  # (bs,ch,100) -> (bs, 2ch, 100, k)
+        x_f, idx = get_graph_feature(
+            x, k=self.k, style=1
+        )  # (bs,ch,100) -> (bs, 2ch, 100, k)
         sout = self.sconvs(x_f)  # conv on semantic graph
         sout = sout.max(dim=-1, keepdim=False)[0]  # (bs, ch, 100, k) -> (bs, ch, 100)
 
@@ -115,7 +133,7 @@ class GraphAlign(nn.Module):
         self.expand_ratio = 0.5
         self.resolution = 16
         self.align_inner = Align1DLayer(self.resolution, samp)
-        self.align_context = Align1DLayer(16,samp)
+        self.align_context = Align1DLayer(16, samp)
         self._get_anchors()
 
     def forward(self, x, index):
@@ -124,21 +142,29 @@ class GraphAlign(nn.Module):
         if not self.anchors.is_cuda:  # run once
             self.anchors = self.anchors.cuda()
 
-        anchor = self.anchors[:self.anchor_num * bs, :]  # (bs*tscale*tscal, 3)
+        anchor = self.anchors[: self.anchor_num * bs, :]  # (bs*tscale*tscal, 3)
         # print('first value in anchor is', anchor[0])
         feat_inner = self.align_inner(x, anchor)  # (bs*tscale*tscal, ch, resolution)
-        #print('inner feature is with shape', feat_inner.shape)
-        if self.style == 1: # use last layer neighbours
-            feat, _ = get_graph_feature(x, k=self.k, style=2)  # (bs,ch,100) -> (bs, ch, 100, k)
+        # print('inner feature is with shape', feat_inner.shape)
+        if self.style == 1:  # use last layer neighbours
+            feat, _ = get_graph_feature(
+                x, k=self.k, style=2
+            )  # (bs,ch,100) -> (bs, ch, 100, k)
             feat = feat.mean(dim=-1, keepdim=False)  # (bs. 2*ch, 100)
-            feat_context = self.align_context(feat, anchor)  # (bs*tscale*tscal, ch, resolution//2)
-            feat = torch.cat((feat_inner,feat_context), dim=2).view(bs, t, self.d, -1)
+            feat_context = self.align_context(
+                feat, anchor
+            )  # (bs*tscale*tscal, ch, resolution//2)
+            feat = torch.cat((feat_inner, feat_context), dim=2).view(bs, t, self.d, -1)
             # print('sg feature is with shape', feat.shape)
-        elif self.style == 2: # use all layers neighbour
-            feat, _ = get_graph_feature(x, k=self.k, style=2, idx_knn=index)  # (bs,ch,100) -> (bs, ch, 100, k)
+        elif self.style == 2:  # use all layers neighbour
+            feat, _ = get_graph_feature(
+                x, k=self.k, style=2, idx_knn=index
+            )  # (bs,ch,100) -> (bs, ch, 100, k)
             feat = feat.mean(dim=-1, keepdim=False)  # (bs. 2*ch, 100)
-            feat_context = self.align_context(feat, anchor)  # (bs*tscale*tscal, ch, resolution//2)
-            feat = torch.cat((feat_inner,feat_context), dim=2).view(bs, t, self.d, -1)
+            feat_context = self.align_context(
+                feat, anchor
+            )  # (bs*tscale*tscal, ch, resolution//2)
+            feat = torch.cat((feat_inner, feat_context), dim=2).view(bs, t, self.d, -1)
         else:
             feat = torch.cat((feat_inner,), dim=2).view(bs, t, t, -1)
         # print('shape after align is', feat_context.shape)
@@ -173,8 +199,8 @@ class GTAD(nn.Module):
         self.h_dim_1d = 256
         self.h_dim_2d = 128
         self.h_dim_3d = 512
-        self.goi_style = opt['goi_style']
-        self.h_dim_goi = self.h_dim_1d*(16,32,32)[opt['goi_style']]
+        self.goi_style = opt["goi_style"]
+        self.h_dim_goi = self.h_dim_1d * (16, 32, 32)[opt["goi_style"]]
         self.idx_list = []
 
         # Backbone Part 1
@@ -187,31 +213,51 @@ class GTAD(nn.Module):
         # Regularization
         self.regu_s = nn.Sequential(
             GCNeXt(self.h_dim_1d, self.h_dim_1d, k=3, groups=32),
-            nn.Conv1d(self.h_dim_1d, 1, kernel_size=1), nn.Sigmoid()
+            nn.Conv1d(self.h_dim_1d, 1, kernel_size=1),
+            nn.Sigmoid(),
         )
         self.regu_e = nn.Sequential(
             GCNeXt(self.h_dim_1d, self.h_dim_1d, k=3, groups=32),
-            nn.Conv1d(self.h_dim_1d, 1, kernel_size=1), nn.Sigmoid()
+            nn.Conv1d(self.h_dim_1d, 1, kernel_size=1),
+            nn.Sigmoid(),
         )
 
         # Backbone Part 2
         self.backbone2 = nn.Sequential(
-            GCNeXt(self.h_dim_1d, self.h_dim_1d, k=3, groups=32,idx=self.idx_list),
+            GCNeXt(self.h_dim_1d, self.h_dim_1d, k=3, groups=32, idx=self.idx_list),
         )
 
         # SGAlign: sub-graph of interest alignment
         self.goi_align = GraphAlign(
-            t=self.tscale, d=opt['max_duration'], bs=self.bs,
-            samp=opt['goi_samp'], style=opt['goi_style']  # for ablation
+            t=self.tscale,
+            d=opt["max_duration"],
+            bs=self.bs,
+            samp=opt["goi_samp"],
+            style=opt["goi_style"],  # for ablation
         )
 
         # Localization Module
         self.localization = nn.Sequential(
-            nn.Conv2d(self.h_dim_goi, self.h_dim_3d, kernel_size=1), nn.ReLU(inplace=True),
-            nn.Conv2d(self.h_dim_3d, self.h_dim_2d, kernel_size=1), nn.ReLU(inplace=True),
-            nn.Conv2d(self.h_dim_2d, self.h_dim_2d, kernel_size=opt['kern_2d'], padding=opt['pad_2d']), nn.ReLU(inplace=True),
-            nn.Conv2d(self.h_dim_2d, self.h_dim_2d, kernel_size=opt['kern_2d'], padding=opt['pad_2d']), nn.ReLU(inplace=True),
-            nn.Conv2d(self.h_dim_2d, 2, kernel_size=1), nn.Sigmoid()
+            nn.Conv2d(self.h_dim_goi, self.h_dim_3d, kernel_size=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(self.h_dim_3d, self.h_dim_2d, kernel_size=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(
+                self.h_dim_2d,
+                self.h_dim_2d,
+                kernel_size=opt["kern_2d"],
+                padding=opt["pad_2d"],
+            ),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(
+                self.h_dim_2d,
+                self.h_dim_2d,
+                kernel_size=opt["kern_2d"],
+                padding=opt["pad_2d"],
+            ),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(self.h_dim_2d, 2, kernel_size=1),
+            nn.Sigmoid(),
         )
 
         # Position encoding (not used)
@@ -219,14 +265,18 @@ class GTAD(nn.Module):
 
     def forward(self, snip_feature):
         del self.idx_list[:]  # clean the idx list
-        base_feature = self.backbone1(snip_feature).contiguous()  # (bs, 2048, 256) -> (bs, 256, 256)
+        base_feature = self.backbone1(
+            snip_feature
+        ).contiguous()  # (bs, 2048, 256) -> (bs, 256, 256)
         gcnext_feature = self.backbone2(base_feature)  #
 
         regu_s = self.regu_s(base_feature).squeeze(1)  # start
         regu_e = self.regu_e(base_feature).squeeze(1)  # end
 
-        if self.goi_style==2:
-            idx_list = [idx for idx in self.idx_list if idx.device == snip_feature.device]
+        if self.goi_style == 2:
+            idx_list = [
+                idx for idx in self.idx_list if idx.device == snip_feature.device
+            ]
             idx_list = torch.cat(idx_list, dim=2)
         else:
             idx_list = None
@@ -236,9 +286,10 @@ class GTAD(nn.Module):
         return iou_map, regu_s, regu_e
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     import opts
     from torchsummary import summary
+
     opt = opts.parse_opt()
     opt = vars(opt)
     model = GTAD(opt).cuda()
@@ -247,8 +298,8 @@ if __name__ == '__main__':
     # a, b, c = model(input)
     # print(a.shape, b.shape, c.shape)
 
-    summary(model, (400,100))
-    '''
+    summary(model, (400, 100))
+    """
     Total params: 9,495,428
     Trainable params: 9,495,428
     Non-trainable params: 0
@@ -257,4 +308,4 @@ if __name__ == '__main__':
     Forward/backward pass size (MB): 1398.48
     Params size (MB): 36.22
     Estimated Total Size (MB): 1434.85
-    '''
+    """
