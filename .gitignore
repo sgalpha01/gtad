@@ -106,3 +106,4 @@ venv.bak/
 data/thumos_annotations/saved*
 data/thumos_feature/TSN*
 output/*
+log.txt
